@@ -39,42 +39,30 @@ func (p *ipecho) echoIP(w dns.ResponseWriter, r *dns.Msg) bool {
 			continue
 		}
 
-		if question.Qtype == dns.TypeA || question.Qtype == dns.TypeAAAA {
-			ip := p.parseIP(&question)
-			if ip == nil {
-				if p.Config.Debug {
-					log.Printf("[ipecho] Parsed IP of '%s' is nil\n", question.Name)
-				}
-				continue
+		if question.Qtype != dns.TypeAAAA {
+			return false
+		}
+
+		ip := p.parseIP(&question)
+		if ip == nil {
+			if p.Config.Debug {
+				log.Printf("[ipecho] Parsed IP of '%s' is nil\n", question.Name)
 			}
-			// not an ip4
-			if ip4 := ip.To4(); ip4 != nil {
-				if p.Config.Debug {
-					log.Printf("[ipecho] Parsed IP of '%s' is an IPv4 address\n", question.Name)
-				}
-				rrs = append(rrs, &dns.A{
-					Hdr: dns.RR_Header{
-						Name:   question.Name,
-						Rrtype: dns.TypeA,
-						Class:  dns.ClassINET,
-						Ttl:    p.Config.TTL,
-					},
-					A: ip,
-				})
-			} else {
-				if p.Config.Debug {
-					log.Printf("[ipecho] Parsed IP of '%s' is an IPv6 address\n", question.Name)
-				}
-				rrs = append(rrs, &dns.AAAA{
-					Hdr: dns.RR_Header{
-						Name:   question.Name,
-						Rrtype: dns.TypeAAAA,
-						Class:  dns.ClassINET,
-						Ttl:    p.Config.TTL,
-					},
-					AAAA: ip,
-				})
+			continue
+		}
+		if ip4 := ip.To4(); ip4 == nil {
+			if p.Config.Debug {
+				log.Printf("[ipecho] Parsed IP of '%s' is an IPv6 address\n", question.Name)
 			}
+			rrs = append(rrs, &dns.AAAA{
+				Hdr: dns.RR_Header{
+					Name:   question.Name,
+					Rrtype: dns.TypeAAAA,
+					Class:  dns.ClassINET,
+					Ttl:    p.Config.TTL,
+				},
+				AAAA: ip,
+			})
 		}
 	}
 
@@ -96,31 +84,43 @@ func (p *ipecho) parseIP(question *dns.Question) net.IP {
 		log.Printf("[ipecho] Query for '%s'", question.Name)
 	}
 
-	for _, domain := range p.Config.Domains {
-		if strings.HasSuffix(strings.ToLower(question.Name), domain) == true {
-			subdomain := question.Name[:len(question.Name)-len(domain)]
-			if len(subdomain) <= 0 {
-				if p.Config.Debug {
-					log.Printf("[ipecho] Query ('%s') has no subomain\n", question.Name)
-				}
-				return nil
-			}
-			subdomain = strings.Trim(subdomain, ".")
-			if len(subdomain) <= 0 {
-				if p.Config.Debug {
-					log.Printf("[ipecho] Parsed Subdomain of '%s' is empty\n", question.Name)
-				}
-				return nil
-			}
-			if p.Config.Debug {
-				log.Printf("[ipecho] Parsed Subdomain of '%s' is '%s'\n", question.Name, subdomain)
-			}
-			return net.ParseIP(subdomain)
+	for _, zone := range p.Config.Zones {
+		if !strings.HasSuffix(strings.ToLower(question.Name), zone) {
+			continue
 		}
+		subdomain := question.Name[:len(question.Name)-len(zone)]
+		if len(subdomain) <= 0 {
+			if p.Config.Debug {
+				log.Printf("[ipecho] Query ('%s') has no subdomain\n", question.Name)
+			}
+			return nil
+		}
+		subdomain = strings.Trim(subdomain, ".")
+		if p.Config.Prefix != "" && !strings.HasPrefix(strings.ToLower(subdomain), p.Config.Prefix) {
+			if p.Config.Debug {
+				log.Printf("[ipecho] Query ('%s') prefix does not match\n", question.Name)
+			}
+			return nil
+		}
+		ipv6nick := subdomain[len(p.Config.Prefix):]
+		if len(ipv6nick) != 16 {
+			log.Printf("[ipecho] ipv6 nick is longer than expected")
+			return nil
+		}
+		var quads [4]string
+		var quad string
+		for i := 0; len(ipv6nick) >= 4; i++ {
+			quad, ipv6nick = ipv6nick[0:4], ipv6nick[4:]
+			log.Println(quad, ipv6nick)
+			quads[i] = quad
+		}
+		ipv6addr := p.Config.Network + ":" + strings.Join(quads[:], ":")
+		log.Println(ipv6addr)
+		return net.ParseIP(ipv6addr)
 	}
 
 	if p.Config.Debug {
-		log.Printf("[ipecho] Query ('%s') does not end with one of the domains (%s)\n", question.Name, strings.Join(p.Config.Domains, ", "))
+		log.Printf("[ipecho] Query ('%s') does not have a matching zone (%s)\n", question.Name, strings.Join(p.Config.Zones, ", "))
 	}
 	return nil
 }

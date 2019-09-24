@@ -1,7 +1,7 @@
 package ipecho
 
 import "testing"
-import "github.com/mholt/caddy/caddyfile"
+import "github.com/caddyserver/caddy/caddyfile"
 import "github.com/tdewolff/buffer"
 import "github.com/stretchr/testify/require"
 

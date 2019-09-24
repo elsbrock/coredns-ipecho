@@ -1,10 +1,11 @@
 package ipecho
 
 import (
+	"fmt"
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/plugin"
 
-	"github.com/mholt/caddy"
+	"github.com/caddyserver/caddy"
 )
 
 func init() {
@@ -15,11 +16,11 @@ func init() {
 }
 
 func setup(c *caddy.Controller) error {
-	c.Next()
-	config, err := newConfigFromDispenser(c.Dispenser)
+	config, err := parse(c)
 	if err != nil {
 		return plugin.Error("ipecho", err)
 	}
+	fmt.Printf("%+v", config)
 
 	dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {
 		return ipecho{Next: next, Config: config}
