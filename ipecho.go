@@ -74,24 +74,27 @@ func (p *ipecho) handlePTR(question dns.Question) (rrs []dns.RR) {
 	}
 	ipv6str := question.Name[:len(question.Name)-9 /* ip6.arpa. */ -1 /* trailing dot */]
 
-	// e.g. ["efef", "feeb"]
-	quads := strings.Split(ipv6str, ".")[0:16] // 16*4 quads
-	quads[3] = strings.Join(quads[0:4], "")
-	quads[2] = strings.Join(quads[4:8], "")
-	quads[1] = strings.Join(quads[8:12], "")
-	quads[0] = strings.Join(quads[12:16], "")
-	quads = quads[0:4]
-
-	// reverse quad contents
-	for i := range quads {
-		runes := []rune(quads[i])
-		for a, b := 0, len(quads[i])-1; a < b; a, b = a+1, b-1 {
-			runes[a], runes[b] = runes[b], runes[a]
-		}
-		quads[i] = string(runes)
+	hexslice := strings.Split(ipv6str, ".")
+	for i, j := 0, len(hexslice) - 1; i < j; i, j = i + 1, j - 1 {
+		hexslice[i] = hexslice[j]
 	}
 
-	hostname := fmt.Sprintf("%s%s.%s", p.Config.Prefix, strings.Join(quads, ""), p.Config.Zones[0])
+	quads := make([]string, 8)
+	for i, j := 0, 4; i < len(quads); i, j = i + 1, j + 4 {
+		quads[i] = strings.Join(hexslice[i * 4 : j], "")
+	}
+
+	ip := net.ParseIP(strings.Join(quads, ":"))
+	if ip == nil {
+		panic("parsed IP is invalid")
+	}
+
+	if !p.Config.network.Contains(ip) {
+		log.Println("refusing to return PTR since IP is not part of network")
+		return
+	}
+
+	hostname := fmt.Sprintf("%s%s.%s", p.Config.Prefix, strings.Join(quads[4:], ""), p.Config.Zones[0])
 
 	rrs = append(rrs, &dns.PTR{
 		Hdr: dns.RR_Header{
@@ -166,7 +169,13 @@ func (p *ipecho) parseIP(question *dns.Question) net.IP {
 			log.Println(quad, ipv6nick)
 			quads[i] = quad
 		}
-		ipv6addr := p.Config.Network + ":" + strings.Join(quads[:], ":")
+		var ipv6addr string
+		ones, _ := p.Config.network.Mask.Size();
+		if ones == 64 {
+			ipv6addr = p.Config.Network[:len(p.Config.Network) - 1 /* :: */] + strings.Join(quads[:], ":")
+		} else {
+			ipv6addr = p.Config.Network + strings.Join(quads[:], ":")
+		}
 		log.Println(ipv6addr)
 		return net.ParseIP(ipv6addr)
 	}

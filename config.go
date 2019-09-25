@@ -16,6 +16,8 @@ type config struct {
 	Zones []string
 	// Network to return AAAA records for
 	Network string
+	network *net.IPNet
+
 	// Prefix to match for
 	Prefix string
 	// TTL to use for response
@@ -52,16 +54,15 @@ func parse(c *caddy.Controller) (*config, error) {
 				if net == nil {
 					return nil, c.Err("invalid network")
 				}
+				config.network = net
 				if bits, _ := net.Mask.Size(); bits > 64 {
 					log.Println("bitlen is", bits)
 					return nil, c.Err("network is smaller than /64")
 				}
-				netstr := args[0][:strings.Index(args[0], "/")]
-				log.Println(netstr)
-				if netstr[len(netstr)-2:] != "::" {
-					return nil, c.Err("network must end with ::")
+				if args[0] != config.network.String() {
+					return nil, c.Err("invalid network")
 				}
-				config.Network = netstr[:len(netstr)-2]
+				config.Network = args[0][:strings.Index(args[0], "/")]
 			case "ttl":
 				args := c.RemainingArgs()
 				if len(args) == 0 {
