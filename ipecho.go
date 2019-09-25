@@ -1,6 +1,7 @@
 package ipecho
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"strings"
@@ -24,7 +25,9 @@ func (p ipecho) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) 
 }
 
 // Name implements the Handler interface.
-func (ipecho) Name() string { return "IPEcho" }
+func (ipecho) Name() string {
+	return "IPEcho"
+}
 
 func (p *ipecho) echoIP(w dns.ResponseWriter, r *dns.Msg) bool {
 	if len(r.Question) <= 0 {
@@ -39,12 +42,15 @@ func (p *ipecho) echoIP(w dns.ResponseWriter, r *dns.Msg) bool {
 			continue
 		}
 
-		switch (question.Qtype) {
+		switch question.Qtype {
 		case dns.TypeAAAA:
 			for _, record := range p.handleAAAA(question) {
 				rrs = append(rrs, record)
 			}
 		case dns.TypePTR:
+			for _, record := range p.handlePTR(question) {
+				rrs = append(rrs, record)
+			}
 		}
 	}
 
@@ -59,6 +65,45 @@ func (p *ipecho) echoIP(w dns.ResponseWriter, r *dns.Msg) bool {
 		return true
 	}
 	return false
+}
+
+func (p *ipecho) handlePTR(question dns.Question) (rrs []dns.RR) {
+	if !strings.HasSuffix(question.Name, "ip6.arpa.") {
+		log.Printf("not a ip6.arpa PTR query")
+		return
+	}
+	ipv6str := question.Name[:len(question.Name)-9 /* ip6.arpa. */ -1 /* trailing dot */]
+
+	// e.g. ["efef", "feeb"]
+	quads := strings.Split(ipv6str, ".")[0:16] // 16*4 quads
+	quads[3] = strings.Join(quads[0:4], "")
+	quads[2] = strings.Join(quads[4:8], "")
+	quads[1] = strings.Join(quads[8:12], "")
+	quads[0] = strings.Join(quads[12:16], "")
+	quads = quads[0:4]
+
+	// reverse quad contents
+	for i := range quads {
+		runes := []rune(quads[i])
+		for a, b := 0, len(quads[i])-1; a < b; a, b = a+1, b-1 {
+			runes[a], runes[b] = runes[b], runes[a]
+		}
+		quads[i] = string(runes)
+	}
+
+	hostname := fmt.Sprintf("%s%s.%s", p.Config.Prefix, strings.Join(quads, ""), p.Config.Zones[0])
+
+	rrs = append(rrs, &dns.PTR{
+		Hdr: dns.RR_Header{
+			Name:   question.Name,
+			Rrtype: dns.TypePTR,
+			Class:  dns.ClassINET,
+			Ttl:    p.Config.TTL,
+		},
+		Ptr: dns.Fqdn(hostname),
+	})
+
+	return
 }
 
 func (p *ipecho) handleAAAA(question dns.Question) (rrs []dns.RR) {

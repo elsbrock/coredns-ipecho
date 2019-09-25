@@ -3,12 +3,12 @@ package ipecho
 import (
 	"fmt"
 	"log"
+	"net"
 	"strconv"
 	"strings"
-	"net"
 
-	"github.com/coredns/coredns/plugin"
 	"github.com/caddyserver/caddy"
+	"github.com/coredns/coredns/plugin"
 )
 
 type config struct {
